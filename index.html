@@ -41,6 +41,12 @@ th{position:sticky;top:0;background:#f9fafb;z-index:1}
 .reader-inline {
   margin-top: 12px;
 }
+.big.ng {
+  color: #8b0000;
+  background: #ffe5e5;
+  border: 3px solid #8b0000;
+  border-radius: 12px;
+}
 
 #reader {
   width: 100%;
@@ -198,7 +204,7 @@ function beep(type) {
     if (!Ctx) return;
     const ctx = new Ctx();
 
-    function playTone(freq, start, duration, volume) {
+    function tone(freq, start, duration, volume) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -217,13 +223,21 @@ function beep(type) {
     }
 
     if (type === "ok") {
-      playTone(1046, 0.00, 0.10, 0.05);
-      playTone(1318, 0.12, 0.12, 0.05);
-      setTimeout(() => ctx.close(), 350);
-    } else {
-      playTone(280, 0.00, 0.18, 0.06);
-      playTone(196, 0.20, 0.22, 0.06);
+      // ピンポン
+      tone(1046, 0.00, 0.12, 0.06);
+      tone(784,  0.16, 0.16, 0.06);
       setTimeout(() => ctx.close(), 500);
+
+    } else if (type === "ng") {
+      // ブッブー
+      tone(220, 0.00, 0.14, 0.07);
+      tone(220, 0.20, 0.28, 0.07);
+      setTimeout(() => ctx.close(), 700);
+
+    } else {
+      // 1回目読込音
+      tone(900, 0.00, 0.10, 0.05);
+      setTimeout(() => ctx.close(), 250);
     }
   } catch (e) {}
 }
@@ -297,14 +311,12 @@ function afterCompare(ok) {
 
 function getScanConfig() {
   return {
-    fps: 12,
+    fps: 15,
     qrbox: function(vw, vh) {
-      const minEdge = Math.min(vw, vh);
-      const width = Math.floor(minEdge * 0.82);
-      return { width: width, height: Math.floor(width * 0.55) };
+      const size = Math.min(vw, vh) * 0.7;
+      return { width: size, height: size }; // ← 正方形にする
     },
-    aspectRatio: 1.7778,
-    rememberLastUsedCamera: true
+    aspectRatio: 1.0
   };
 }
 
@@ -347,11 +359,10 @@ async function startWithCameraId(cameraId) {
 
 async function startWithFacingMode() {
   await scanner.start(
-    { facingMode: { exact: "environment" } },
-    getScanConfig(),
-    onScanSuccess,
-    function() {}
-  );
+  { facingMode: "environment" },
+  getScanConfig(),
+  onScanSuccess
+);
   currentCameraId = "environment";
 }
 
@@ -432,7 +443,7 @@ function onScanSuccess(decodedText) {
     resultText.className = "big neutral";
     scanStep = 2;
     setStepUI();
-    beep("ok");
+    beep("scan");
     vibrate(60);
     return;
   }
