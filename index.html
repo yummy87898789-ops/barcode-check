@@ -438,6 +438,23 @@ function resetAll() {
   setStepUI();
 }
 
+function resetSecondOnly() {
+  code2 = "";
+  code2View.textContent = "";
+  resultText.textContent = "商品を再スキャン";
+  resultText.className = "big neutral";
+  resultText.style.color = "";
+  resultText.style.background = "";
+  resultText.style.border = "";
+  scanStep = 2;
+  processingLock = false;
+  pauseUntil = 0;
+  lastAcceptedValue = "";
+  blockSameUntil = 0;
+  resetReadStabilizer();
+  setStepUI();
+}
+
 function vibrate(ms) {
   if (vibrationMode.checked && navigator.vibrate) navigator.vibrate(ms);
 }
@@ -556,13 +573,26 @@ function afterCompare(ok) {
   blockSameUntil = 0;
   resetReadStabilizer();
 
-  if (continuousMode.checked) {
-    const sec = Math.max(1, Math.min(10, Number(resetSeconds.value) || 2));
-    setTimeout(function() {
-      resetAll();
-    }, sec * 1000);
+  const sec = Math.max(1, Math.min(10, Number(resetSeconds.value) || 2));
+
+  if (ok) {
+    if (continuousMode.checked) {
+      setTimeout(function() {
+        resetAll();
+      }, sec * 1000);
+    } else {
+      statusText.textContent = "リセットしてください";
+    }
   } else {
-    statusText.textContent = "リセットしてください";
+    if (continuousMode.checked) {
+      setTimeout(function() {
+        resetSecondOnly();
+      }, sec * 1000);
+    } else {
+      statusText.textContent = "② 商品側をもう一度読み取ってください";
+      processingLock = false;
+      pauseUntil = 0;
+    }
   }
 }
 
