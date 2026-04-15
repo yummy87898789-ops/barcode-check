@@ -6,7 +6,7 @@
 <title>バーコード照合 現場版</title>
 <script src="https://unpkg.com/html5-qrcode"></script>
 <style>
-:root{--bg:#f7f8fb;--card:#fff;--text:#111827;--sub:#6b7280;--ok:#0f9d58;--ng:#d93025;--accent:#2563eb;--border:#d1d5db}
+:root{--bg:#f7f8fb;--card:#fff;--text:#111827;--sub:#6b7280;--ok:#0f9d58;--ng:#8sb00000;--accent:#2563eb;--border:#d1d5db}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif}
 .wrap{max-width:760px;margin:0 auto;padding:14px}
@@ -38,6 +38,24 @@ table{width:100%;border-collapse:collapse;background:#fff}
 th,td{padding:10px 8px;border-bottom:1px solid #e5e7eb;font-size:14px;text-align:left;vertical-align:top}
 th{position:sticky;top:0;background:#f9fafb;z-index:1}
 .small{font-size:12px;color:var(--sub)}
+.reader-inline {
+  margin-top: 12px;
+}
+
+#reader {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  min-height: 220px;
+  background: #000;
+}
+
+#reader video {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+  border-radius: 16px !important;
+}
 </style>
 </head>
 <body>
@@ -61,29 +79,34 @@ th{position:sticky;top:0;background:#f9fafb;z-index:1}
       <button id="clearHistoryBtn" class="warn">履歴削除</button>
       <button id="toggleCameraBtn" class="secondary">停止/再開</button>
     </div>
-    <div class="switches">
-      <div class="switch"><span>連続スキャン</span><input type="checkbox" id="continuousMode" checked /></div>
-      <div class="switch"><span>音を鳴らす</span><input type="checkbox" id="soundMode" checked /></div>
-      <div class="switch"><span>バイブ</span><input type="checkbox" id="vibrationMode" checked /></div>
-      <div class="switch"><span>自動リセット秒</span><input type="number" id="resetSeconds" min="1" max="10" value="2" style="width:72px;font-size:18px" /></div>
-    </div>
-    <div class="hint">
-      Android Chromeでの利用を想定しています。<br>
-      GS1-128 は <b>(01)</b> の後ろの数字を取り出して比較します。<br>
-      Code39 の <b>*</b> は比較前に自動で取り除きます。
-    </div>
-  </div>
-  <div class="panel"><div id="reader"></div></div>
+    <div class="reader-inline">
+  <div id="reader"></div>
+</div>
+
+<div class="switches">
+  <div class="switch"><span>連続スキャン</span><input type="checkbox" id="continuousMode" checked /></div>
+  <div class="switch"><span>音を鳴らす</span><input type="checkbox" id="soundMode" checked /></div>
+  <div class="switch"><span>バイブ</span><input type="checkbox" id="vibrationMode" checked /></div>
+  <div class="switch"><span>自動リセット秒</span><input type="number" id="resetSeconds" min="1" max="10" value="2" style="width:72px;font-size:18px" /></div>
+</div>
+
+<div class="hint">
+  Android Chromeでの利用を想定しています。<br>
+  GS1-128 は <b>(01)</b> の後ろの数字を取り出して比較します。<br>
+  Code39 の <b>*</b> は比較前に自動で取り除きます。
+</div>
+</div>
   <div class="panel">
-    <div class="history-title">履歴</div>
-    <div class="history-wrap">
+  <details>
+    <summary class="history-title">履歴を表示</summary>
+    <div class="history-wrap" style="margin-top:10px;">
       <table id="historyTable">
         <thead><tr><th>時刻</th><th>1回目</th><th>2回目</th><th>結果</th></tr></thead>
         <tbody id="historyBody"></tbody>
       </table>
     </div>
     <div class="small" style="margin-top:8px">履歴はこの端末に保存されます。</div>
-  </div>
+  </details>
 </div>
 
 <script>
@@ -169,22 +192,39 @@ function vibrate(ms) {
 
 function beep(type) {
   if (!soundMode.checked) return;
+
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = (type === "ok") ? 900 : 220;
-    gain.gain.value = 0.06;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    setTimeout(function() {
-      osc.stop();
-      ctx.close();
-    }, type === "ok" ? 120 : 280);
+
+    function playTone(freq, start, duration, volume) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + duration + 0.02);
+    }
+
+    if (type === "ok") {
+      playTone(1046, 0.00, 0.10, 0.05);
+      playTone(1318, 0.12, 0.12, 0.05);
+      setTimeout(() => ctx.close(), 350);
+    } else {
+      playTone(280, 0.00, 0.18, 0.06);
+      playTone(196, 0.20, 0.22, 0.06);
+      setTimeout(() => ctx.close(), 500);
+    }
   } catch (e) {}
 }
 
