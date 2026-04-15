@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>バーコード照合 現場版</title>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<style>
+:root{--bg:#f7f8fb;--card:#fff;--text:#111827;--sub:#6b7280;--ok:#0f9d58;--ng:#d93025;--accent:#2563eb;--border:#d1d5db}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:14px}
+.title{font-size:30px;font-weight:800;text-align:center;margin:6px 0 14px}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.06);margin-bottom:14px}
+.status{font-size:18px;font-weight:700;text-align:center;margin-bottom:8px}
+.big{font-size:68px;font-weight:900;text-align:center;min-height:84px;line-height:1.1;margin:8px 0}
+.ok{color:var(--ok)} .ng{color:var(--ng)} .neutral{color:var(--text)}
+.steps{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 4px}
+.step{border:2px solid var(--border);border-radius:16px;padding:12px;text-align:center;font-size:18px;font-weight:800;background:#fff}
+.step.active{border-color:var(--accent);background:#eff6ff}
+.code-box{background:#f3f4f6;border-radius:14px;padding:12px;margin-top:10px}
+.label{font-size:14px;color:var(--sub);margin-bottom:4px}
+.value{font-size:22px;font-weight:700;min-height:28px;word-break:break-all}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.controls2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+button{appearance:none;border:0;border-radius:16px;padding:16px 12px;font-size:19px;font-weight:800;background:var(--accent);color:#fff}
+button.secondary{background:#4b5563}
+button.warn{background:#b91c1c}
+button:disabled{opacity:.55}
+.switches{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+.switch{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff;font-size:17px;font-weight:700}
+.hint{font-size:14px;color:var(--sub);line-height:1.6;margin-top:10px}
+#reader{width:100%;overflow:hidden;border-radius:16px}
+#reader video{border-radius:16px!important}
+.history-title{font-size:18px;font-weight:800;margin-bottom:8px}
+.history-wrap{max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:14px}
+table{width:100%;border-collapse:collapse;background:#fff}
+th,td{padding:10px 8px;border-bottom:1px solid #e5e7eb;font-size:14px;text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:#f9fafb;z-index:1}
+.small{font-size:12px;color:var(--sub)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">バーコード照合 現場版</div>
+  <div class="panel">
+    <div id="statusText" class="status">① リスト側を読み取ってください</div>
+    <div id="resultText" class="big neutral">待機中</div>
+    <div class="steps">
+      <div id="step1" class="step active">① リスト側</div>
+      <div id="step2" class="step">② 商品側</div>
+    </div>
+    <div class="code-box"><div class="label">1回目</div><div id="code1View" class="value"></div></div>
+    <div class="code-box"><div class="label">2回目</div><div id="code2View" class="value"></div></div>
+    <div class="controls">
+      <button id="startBtn">カメラ開始</button>
+      <button id="resetBtn" class="secondary">リセット</button>
+    </div>
+    <div class="controls2">
+      <button id="exportBtn" class="secondary">履歴CSV</button>
+      <button id="clearHistoryBtn" class="warn">履歴削除</button>
+      <button id="toggleCameraBtn" class="secondary">停止/再開</button>
+    </div>
+    <div class="switches">
+      <div class="switch"><span>連続スキャン</span><input type="checkbox" id="continuousMode" checked /></div>
+      <div class="switch"><span>音を鳴らす</span><input type="checkbox" id="soundMode" checked /></div>
+      <div class="switch"><span>バイブ</span><input type="checkbox" id="vibrationMode" checked /></div>
+      <div class="switch"><span>自動リセット秒</span><input type="number" id="resetSeconds" min="1" max="10" value="2" style="width:72px;font-size:18px" /></div>
+    </div>
+    <div class="hint">
+      Android Chromeでの利用を想定しています。<br>
+      GS1-128 は <b>(01)</b> の後ろの数字を取り出して比較します。<br>
+      Code39 の <b>*</b> は比較前に自動で取り除きます。
+    </div>
+  </div>
+  <div class="panel"><div id="reader"></div></div>
+  <div class="panel">
+    <div class="history-title">履歴</div>
+    <div class="history-wrap">
+      <table id="historyTable">
+        <thead><tr><th>時刻</th><th>1回目</th><th>2回目</th><th>結果</th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+    <div class="small" style="margin-top:8px">履歴はこの端末に保存されます。</div>
+  </div>
+</div>
+
+<script>
+let scanner = null;
+let scanStep = 1;
+let code1 = "";
+let code2 = "";
+let cooldown = false;
+let cameraRunning = false;
+let currentCameraId = null;
+const STORAGE_KEY = "barcode_check_history_v2";
+
+const statusText = document.getElementById("statusText");
+const resultText = document.getElementById("resultText");
+const code1View = document.getElementById("code1View");
+const code2View = document.getElementById("code2View");
+const step1 = document.getElementById("step1");
+const step2 = document.getElementById("step2");
+const startBtn = document.getElementById("startBtn");
+const resetBtn = document.getElementById("resetBtn");
+const exportBtn = document.getElementById("exportBtn");
+const clearHistoryBtn = document.getElementById("clearHistoryBtn");
+const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+const continuousMode = document.getElementById("continuousMode");
+const soundMode = document.getElementById("soundMode");
+const vibrationMode = document.getElementById("vibrationMode");
+const resetSeconds = document.getElementById("resetSeconds");
+const historyBody = document.getElementById("historyBody");
+
+function nowText() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  return y + "-" + m + "-" + da + " " + h + ":" + mi + ":" + s;
+}
+
+function normalize(code) {
+  if (!code) return "";
+  let t = String(code).trim();
+  t = t.replace(/\s+/g, "");
+  if (t.startsWith("*")) t = t.slice(1);
+  if (t.endsWith("*")) t = t.slice(0, -1);
+
+  let m = t.match(/\(01\)(\d{14})/);
+  if (m) return m[1];
+
+  m = t.match(/^01(\d{14})/);
+  if (m) return m[1];
+
+  return t;
+}
+
+function setStepUI() {
+  if (scanStep === 1) {
+    step1.classList.add("active");
+    step2.classList.remove("active");
+    statusText.textContent = "① リスト側を読み取ってください";
+  } else {
+    step1.classList.remove("active");
+    step2.classList.add("active");
+    statusText.textContent = "② 商品側を読み取ってください";
+  }
+}
+
+function resetAll() {
+  code1 = "";
+  code2 = "";
+  scanStep = 1;
+  code1View.textContent = "";
+  code2View.textContent = "";
+  resultText.textContent = "待機中";
+  resultText.className = "big neutral";
+  setStepUI();
+}
+
+function vibrate(ms) {
+  if (vibrationMode.checked && navigator.vibrate) navigator.vibrate(ms);
+}
+
+function beep(type) {
+  if (!soundMode.checked) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = (type === "ok") ? 900 : 220;
+    gain.gain.value = 0.06;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    setTimeout(function() {
+      osc.stop();
+      ctx.close();
+    }, type === "ok" ? 120 : 280);
+  } catch (e) {}
+}
+
+function historyLoad() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
+  catch(e) { return []; }
+}
+
+function historySave(list) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+
+function renderHistory() {
+  const list = historyLoad();
+  historyBody.innerHTML = "";
+  list.forEach(function(row) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + row.time + "</td><td>" + row.first + "</td><td>" + row.second + "</td><td>" + row.result + "</td>";
+    historyBody.appendChild(tr);
+  });
+}
+
+function addHistory(first, second, result) {
+  const list = historyLoad();
+  list.unshift({ time: nowText(), first: first, second: second, result: result });
+  historySave(list);
+  renderHistory();
+}
+
+function exportHistoryCsv() {
+  const list = historyLoad();
+  const rows = [["時刻","1回目","2回目","結果"]];
+  list.forEach(function(r){ rows.push([r.time, r.first, r.second, r.result]); });
+  const csv = rows.map(function(cols){
+    return cols.map(function(v){
+      const s = String(v || "");
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    }).join(",");
+  }).join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "barcode_history.csv";
+  a.click();
+}
+
+function showResult(ok) {
+  if (ok) {
+    resultText.textContent = "OK";
+    resultText.className = "big ok";
+    beep("ok");
+    vibrate(120);
+  } else {
+    resultText.textContent = "NG";
+    resultText.className = "big ng";
+    beep("ng");
+    vibrate([150, 80, 150]);
+  }
+}
+
+function afterCompare(ok) {
+  addHistory(code1, code2, ok ? "OK" : "NG");
+  if (continuousMode.checked) {
+    const sec = Math.max(1, Math.min(10, Number(resetSeconds.value) || 2));
+    setTimeout(resetAll, sec * 1000);
+  } else {
+    statusText.textContent = "リセットしてください";
+  }
+}
+
+function getScanConfig() {
+  return {
+    fps: 12,
+    qrbox: function(vw, vh) {
+      const minEdge = Math.min(vw, vh);
+      const width = Math.floor(minEdge * 0.82);
+      return { width: width, height: Math.floor(width * 0.55) };
+    },
+    aspectRatio: 1.7778,
+    rememberLastUsedCamera: true
+  };
+}
+
+function pickRearCamera(cameras) {
+  if (!cameras || !cameras.length) return null;
+
+  const scoreCamera = function(cam) {
+    const label = String(cam.label || "").toLowerCase();
+    let score = 0;
+    if (label.includes("back")) score += 100;
+    if (label.includes("rear")) score += 100;
+    if (label.includes("environment")) score += 90;
+    if (label.includes("world")) score += 80;
+    if (label.includes("外")) score += 70;
+    if (label.includes("背面")) score += 70;
+    if (label.includes("後")) score += 50;
+    if (label.includes("front")) score -= 200;
+    if (label.includes("user")) score -= 200;
+    if (label.includes("内")) score -= 150;
+    if (label.includes("前")) score -= 150;
+    return score;
+  };
+
+  const sorted = cameras.slice().sort(function(a, b) {
+    return scoreCamera(b) - scoreCamera(a);
+  });
+
+  return sorted[0];
+}
+
+async function startWithCameraId(cameraId) {
+  await scanner.start(
+    cameraId,
+    getScanConfig(),
+    onScanSuccess,
+    function() {}
+  );
+  currentCameraId = cameraId;
+}
+
+async function startWithFacingMode() {
+  await scanner.start(
+    { facingMode: { exact: "environment" } },
+    getScanConfig(),
+    onScanSuccess,
+    function() {}
+  );
+  currentCameraId = "environment";
+}
+
+async function startCamera() {
+  if (cameraRunning) return;
+
+  scanner = scanner || new Html5Qrcode("reader");
+  startBtn.disabled = true;
+  toggleCameraBtn.disabled = true;
+  startBtn.textContent = "起動中...";
+  statusText.textContent = "カメラを起動しています...";
+
+  try {
+    let started = false;
+
+    try {
+      const cameras = await Html5Qrcode.getCameras();
+      if (cameras && cameras.length) {
+        const rear = pickRearCamera(cameras);
+        if (rear && rear.id) {
+          await startWithCameraId(rear.id);
+          started = true;
+        }
+      }
+    } catch (e) {
+    }
+
+    if (!started) {
+      await startWithFacingMode();
+      started = true;
+    }
+
+    cameraRunning = true;
+    startBtn.textContent = "カメラ起動中";
+    statusText.textContent = scanStep === 1 ? "① リスト側を読み取ってください" : "② 商品側を読み取ってください";
+  } catch (e) {
+    console.error(e);
+    startBtn.textContent = "カメラ開始";
+    statusText.textContent = "カメラを起動できませんでした";
+    alert("カメラを起動できませんでした。AndroidのChromeで開き、カメラ許可が「許可」になっているか確認してください。");
+  } finally {
+    startBtn.disabled = false;
+    toggleCameraBtn.disabled = false;
+  }
+}
+
+async function stopCamera() {
+  if (!scanner || !cameraRunning) return;
+  try {
+    await scanner.stop();
+  } catch (e) {
+    console.error(e);
+  }
+  cameraRunning = false;
+  startBtn.textContent = "カメラ開始";
+  statusText.textContent = "カメラ停止中";
+}
+
+async function toggleCamera() {
+  if (cameraRunning) {
+    await stopCamera();
+  } else {
+    await startCamera();
+  }
+}
+
+function onScanSuccess(decodedText) {
+  if (cooldown) return;
+  cooldown = true;
+  setTimeout(function(){ cooldown = false; }, 900);
+
+  const value = normalize(decodedText);
+
+  if (scanStep === 1) {
+    code1 = value;
+    code1View.textContent = value;
+    resultText.textContent = "1回目 OK";
+    resultText.className = "big neutral";
+    scanStep = 2;
+    setStepUI();
+    beep("ok");
+    vibrate(60);
+    return;
+  }
+
+  code2 = value;
+  code2View.textContent = value;
+
+  const ok = code1 !== "" && code1 === code2;
+  showResult(ok);
+  afterCompare(ok);
+}
+
+startBtn.addEventListener("click", startCamera);
+toggleCameraBtn.addEventListener("click", toggleCamera);
+resetBtn.addEventListener("click", resetAll);
+exportBtn.addEventListener("click", exportHistoryCsv);
+clearHistoryBtn.addEventListener("click", function(){
+  if (confirm("履歴を削除しますか？")) {
+    historySave([]);
+    renderHistory();
+  }
+});
+
+renderHistory();
+setStepUI();
+</script>
+</body>
+</html>
